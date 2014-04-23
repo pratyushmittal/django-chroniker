@@ -512,7 +512,9 @@ class Job(models.Model):
         settings.AUTH_USER_MODEL,
         related_name='subscribed_jobs',
         blank=True,
-        limit_choices_to={'is_staff':True})
+        # till 1.6 we can't use callables in the choices. Since 1.7 it has been fixed.
+        # Thus a temprory change.
+        limit_choices_to={'is_admin':True})
     
     email_errors_to_subscribers = models.BooleanField(
         default=True,
