@@ -5,18 +5,52 @@ import signal
 import subprocess
 import warnings
 import errno
+
+from datetime import timedelta
 from StringIO import StringIO
 
 from django.contrib.contenttypes.models import ContentType
 from django.core.urlresolvers import reverse
 from django.db import models
 from django.db import connection
+from django.utils import timezone
 
 from multiprocessing import Process, current_process
 
 import psutil
 
 import constants as c
+
+def get_etc(complete_parts, total_parts, start_datetime, current_datetime=None):
+    """
+    Estimates a job's time to completion.
+    """
+    current_datetime = current_datetime or timezone.now()
+    total_seconds = float((current_datetime - start_datetime).total_seconds())
+    complete_seconds = total_seconds/complete_parts*total_parts
+    etc = start_datetime + timedelta(seconds=complete_seconds)
+    return etc
+
+#def calculate_eta(start_datetime, start_count, current_count, total_count):
+#    """
+#    Returns the datetime when the given process will likely complete, assuming
+#    a relatively linear projection of the current progress.
+#    """
+#    assert start_count >= 0, 'Invalid start_count: %s' % (start_count,)
+#    assert current_count >= 0, 'Invalid current_count: %s' % (current_count,)
+#    assert total_count >= 0, 'Invalid total_count: %s' % (total_count,)
+#    assert isinstance(start_datetime, datetime)
+#    if not total_count:
+#        return
+#    now_datetime = datetime.now()
+#    ran_parts = current_count - start_count
+#    ran_seconds = (now_datetime - start_datetime).total_seconds()
+#    remaining_parts = total_count - current_count - start_count
+#    if not ran_parts:
+#        return
+#    remaining_seconds = ran_seconds/float(ran_parts)*remaining_parts
+#    eta = now_datetime + timedelta(seconds=remaining_seconds)
+#    return eta
 
 def get_admin_change_url(obj):
     ct = ContentType.objects.get_for_model(obj)

@@ -1444,6 +1444,7 @@ class Log(models.Model):
             q = q.filter(run_start_datetime__lte = time_ago)
         q.delete()
 
+
 class MonitorManager(models.Manager):
     
     def all(self):
