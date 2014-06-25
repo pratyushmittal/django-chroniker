@@ -1,3 +1,5 @@
+from __future__ import print_function
+
 import logging
 import os
 import re
@@ -8,16 +10,31 @@ import tempfile
 import time
 import traceback
 
+from functools import cmp_to_key
 from datetime import datetime, timedelta
 from dateutil import rrule
-from StringIO import StringIO
+
+import six
+from six import u
+
+try:
+    from io import StringIO
+except ImportError:
+    from cStringIO import StringIO
+
 import threading
 try:
-    import thread
+    try:
+        import _thread as thread
+    except ImportError:
+        import _dummy_thread as thread
 except ImportError:
-    import dummy_thread as thread
+    try:
+        import thread
+    except ImportError:
+        import dummy_thread as thread
 
-import settings as _settings
+from . import settings as _settings
 
 import django
 from django.conf import settings
@@ -84,9 +101,9 @@ def set_current_job(job):
     """
     try:
         job_id = int(job)
-    except ValueError, e:
+    except ValueError:
         job_id = job.id
-    except TypeError, e:
+    except TypeError:
         job_id = job.id
     thread_ident = thread.get_ident()
     if thread_ident not in _state:
@@ -356,7 +373,7 @@ class JobManager(models.Manager):
         all their dependees.
         """
         lst = list(self.due_with_met_dependencies(jobs=jobs))
-        lst.sort(cmp=order_by_dependencies)
+        lst.sort(key=cmp_to_key(order_by_dependencies))
         return lst
 
     def stale(self):
@@ -379,9 +396,9 @@ class JobManager(models.Manager):
         try:
             q = self.stale()
             total = q.count()
-            print '%i total stale jobs.' % (total,)
+            print('{} total stale jobs.'.format(total))
             for job in q.iterator():
-                print 'Checking stale job %i <%s>...' % (job.id, job,)
+                print('Checking stale job {} <>...'.format(job.id, job))
                 
                 # If we know the PID and it's running locally, and the process
                 # appears inactive, then attempt to forcibly kill the job.
@@ -393,13 +410,13 @@ class JobManager(models.Manager):
 #                            print 'Process with PID %s is still consuming CPU so keeping alive for now.' % (job.current_pid,)
 #                            continue
 #                        else:
-                        print 'Killing process %s...' % (job.current_pid,)
+                        print('Killing process {}...'.format(job.current_pid))
                         chroniker.utils.kill_process(job.current_pid)
                         #TODO:record log entry
                     else:
-                        print 'Process with PID %s is not running.' % (job.current_pid,)
+                        print('Process with PID {} is not running.'.format(job.current_pid))
                 else:
-                    print 'Process with PID %s is not elligible for killing.' % (job.current_pid,)
+                    print('Process with PID {} is not elligible for killing.'.format(job.current_pid))
                 
                 job.is_running = False
                 job.last_run_successful = False
@@ -634,10 +651,20 @@ class Job(models.Model):
         )
     
     def __unicode__(self):
-        if not self.enabled:
-            return _(u"%(id)s - %(name)s - disabled") % {'name': self.name, 'id':self.id}
-        return u"%i - %s - %s" % (self.id, self.name, self.timeuntil)
+        if self.enabled:
+            ret = "%i - %s - %s" % (self.id, self.name, self.timeuntil)
+        else:
+            ret = "%(id)s - %(name)s - disabled" % {'name': self.name, 'id':self.id}
+        if not isinstance(ret, six.text_type):
+            ret = u(ret)
+        return ret
     
+    def __str__(self):
+        if six.PY3:
+            return self.__unicode__()
+        else:
+            return self.__unicode__().encode('utf8')
+            
     @property
     def monitor_url_rendered(self):
         if not self.is_monitor or not self.monitor_url:
@@ -784,11 +811,11 @@ class Job(models.Model):
                 tz = timezone.get_default_timezone()
                 try:
                     self.next_run = self.rrule.after(timezone.make_aware(next_run, tz))
-                except ValueError, e:
+                except ValueError:
                     self.next_run = timezone.make_aware(
                         self.rrule.after(timezone.make_naive(next_run, tz)),
                         tz)
-                except TypeError, e:
+                except TypeError:
                     self.next_run = timezone.make_aware(
                         self.rrule.after(timezone.make_naive(next_run, tz)),
                         tz)
@@ -832,7 +859,7 @@ class Job(models.Model):
         
         >>> job = Job(next_run=timezone.now())
         >>> job.get_timeuntil().translate('en')
-        u'due'
+        'due'
         """
         if not self.enabled:
             return _('never (disabled)')
@@ -985,7 +1012,7 @@ class Job(models.Model):
         dueness and don't want our current run status to give an incorrect
         reading.
         """
-        print 'force_run:',force_run
+        print('force_run:', force_run)
         if force_run:
             self.handle_run(*args, **kwargs)
             return True
@@ -993,17 +1020,17 @@ class Job(models.Model):
             if not self.dependencies_met():
                 # Note, this will cause the job to be re-checked
                 # the next time cron runs.
-                print 'Job "%s" has unmet dependencies. Aborting run.' % (self.name,)
+                print('Job "{}" has unmet dependencies. Aborting run.'.format(self.name))
             elif check_running and self.check_is_running():
-                print 'Job "%s" already running. Aborting run.' % (self.name,)
+                print('Job "{}" already running. Aborting run.'.format(self.name))
             elif not self.is_due(check_running=check_running):
-                print 'Job "%s" not due. Aborting run.' % (self.name,)
+                print('Job "{}" not due. Aborting run.'.format(self.name))
             else:
                 #call_command('run_job', str(self.pk)) # Calls handle_run().
                 self.handle_run(*args, **kwargs)
                 return True
         else:
-            print 'Job disabled. Aborting run.'
+            print('Job disabled. Aborting run.')
         return False
     
     def handle_run(self, update_heartbeat=True, stdout_queue=None, stderr_queue=None, *args, **kwargs):
@@ -1013,7 +1040,7 @@ class Job(models.Model):
         subprocess, which can be invoked by calling this ``Job``\'s ``run``
         method.
         """
-        print 'Handling run...'
+        print('Handling run...')
         
         lock = threading.Lock()
         run_start_datetime = timezone.now()
@@ -1069,7 +1096,7 @@ class Job(models.Model):
                     total_parts_complete = 0,
                     lock_file = heartbeat.lock_file.name if heartbeat and heartbeat.lock_file else '',
                 )
-            except Exception, e:
+            except Exception as e:
                 # The command failed to run; log the exception
                 t = loader.get_template('chroniker/error_message.txt')
                 c = Context({
@@ -1097,7 +1124,7 @@ class Job(models.Model):
                 logger.debug("Command '%s' completed" % self.command)
                 if original_pid != os.getpid():
                     return
-            except Exception, e:
+            except Exception as e:
                 if original_pid != os.getpid():
                     return
                 # The command failed to run; log the exception
@@ -1120,12 +1147,12 @@ class Job(models.Model):
             #next_run = self.next_run.replace(tzinfo=None)
             next_run = self.next_run
             if not self.force_run:
-                print "Determining 'next_run' for job %d..." % (self.id,)
+                print("Determining 'next_run' for job {}...".format(self.id))
                 if next_run < timezone.now():
                     next_run = timezone.now()
                 _next_run = next_run
                 next_run = self.rrule.after(next_run)
-                print _next_run, next_run
+                print(_next_run, next_run)
                 assert next_run != _next_run, \
                     'RRule failed to increment next run datetime.'
             #next_run = next_run.replace(tzinfo=timezone.get_current_timezone()) 
@@ -1156,7 +1183,7 @@ class Job(models.Model):
                     last_run_successful = last_run_successful,
                     total_parts_complete = (job.last_run_successful and job.total_parts) or 0,
                 )
-            except Exception, e:
+            except Exception as e:
                 # The command failed to run; log the exception
                 t = loader.get_template('chroniker/error_message.txt')
                 c = Context({
@@ -1180,23 +1207,23 @@ class Job(models.Model):
             sys.stderr = ostderr
             
             # Record run log.
-            print 'Recording log...'
+            print('Recording log...')
             
             stdout_str = ''
             if self.log_stdout:
                 stdout_str = stdout.getvalue()
-                if isinstance(stdout_str, unicode):
+                if isinstance(stdout_str, six.text_type):
                     stdout_str = stdout_str.encode('utf-8', 'replace')
                 else:
-                    stdout_str = unicode(stdout_str, 'utf-8', 'replace')
+                    stdout_str = six.text_type(stdout_str, 'utf-8', 'replace')
             
             stderr_str = ''
             if self.log_stderr:
                 stderr_str = stderr.getvalue()
-                if isinstance(stderr_str, unicode):
+                if isinstance(stderr_str, six.text_type):
                     stderr_str = stderr_str.encode('utf-8', 'replace')
                 else:
-                    stderr_str = unicode(stderr_str, 'utf-8', 'replace')
+                    stderr_str = six.text_type(stderr_str, 'utf-8', 'replace')
             
             run_end_datetime = timezone.now()
             duration_seconds = (run_end_datetime - run_start_datetime).total_seconds()
@@ -1219,7 +1246,7 @@ class Job(models.Model):
                 else:
                     if self.email_errors_to_subscribers:
                         log.email_subscribers()
-            except Exception, e:
+            except Exception as e:
                 print>>sys.stderr, e
             
             # If an exception occurs above, ensure we unmark is_running.
@@ -1233,7 +1260,7 @@ class Job(models.Model):
                 job.save()
             lock.release()
             
-            print 'Job done.'
+            print('Job done.')
     
     def check_is_running(self):
         """
@@ -1329,8 +1356,17 @@ class Log(models.Model):
         ordering = ('-run_start_datetime',)
     
     def __unicode__(self):
-        return u"%s - %s" % (self.job.name, self.run_start_datetime)
-    
+        ret = "%s - %s" % (self.job.name, self.run_start_datetime)
+        if not isinstance(ret, six.text_type):
+            ret = u(ret)
+        return ret
+        
+    def __str__(self):
+        if six.PY3:
+            return self.__unicode__()
+        else:
+            return self.__unicode__().encode('utf8')
+        
     def save(self, *args, **kwargs):
         if self.run_start_datetime and self.run_end_datetime:
             assert self.run_start_datetime <= self.run_end_datetime, 'Job must start before it ends.'
